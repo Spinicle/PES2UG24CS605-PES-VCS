@@ -185,6 +185,14 @@ static int write_tree_level(IndexEntry *entries, int count, int depth, ObjectID 
             i = j;
         }
     }
+    
+    void *tree_data;
+    size_t tree_len;
+    if (tree_serialize(&tree, &tree_data, &tree_len) != 0) return -1;
+    int ret = object_write(OBJ_TREE, tree_data, tree_len, id_out);
+    free(tree_data);
+    return ret;
+}
 
                 
 int tree_from_index(ObjectID *id_out) {
