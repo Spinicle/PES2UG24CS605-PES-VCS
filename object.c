@@ -94,42 +94,18 @@ int object_exists(const ObjectID *id) {
 //
 // Returns 0 on success, -1 on error.
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out) {
-
-    const char *type_str;
-    if (type == OBJ_BLOB) type_str = "blob";
-    else if (type == OBJ_TREE) type_str = "tree";
-    else if (type == OBJ_COMMIT) type_str = "commit";
-    else return -1;
+    
+    const char *type_str = (type == OBJ_BLOB) ? "blob" : (type == OBJ_TREE) ? "tree" : "commit";
 
     char header[64];
-    int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, len);
-    if (header_len < 0) return -1;
+    int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, len) + 1;
 
-    size_t total_len = header_len + 1 + len;
-
-    uint8_t *full = malloc(total_len);
+    size_t full_len = header_len + len;
+    uint8_t *full = malloc(full_len);
     if (!full) return -1;
-
     memcpy(full, header, header_len);
-    full[header_len] = '\0';
-    memcpy(full + header_len + 1, data, len);
+    memcpy(full + header_len, data, len);
 
-    compute_hash(full, total_len, id_out);
-
-    if (object_exists(id_out)) {
-        free(full);
-        return 0;
-    }
-
-    char path[512];
-    object_path(id_out, path, sizeof(path));
-
-    char dir[512];
-    snprintf(dir, sizeof(dir), "%s/%.2s", OBJECTS_DIR, path + strlen(OBJECTS_DIR) + 1);
-
-    mkdir(dir, 0755);
-
-    
     (void)type; (void)data; (void)len; (void)id_out;
     return -1;
 }
