@@ -138,19 +138,20 @@ static int write_tree_level(IndexEntry *entries, int count, int depth, ObjectID 
     tree.count = 0;
 
     int i = 0;
-        while (i < count) {
-            char *path = entries[i].path;
-            char *slash = strchr(path, '/');
+    while (i < count) {
+        char *path = entries[i].path;
+        char *slash = strchr(path, '/');
 
-            if (slash == NULL) {
-                TreeEntry *te = &tree.entries[tree.count];
-                te->mode = entries[i].mode;
-                te->hash = entries[i].hash;
-                strncpy(te->name, path, sizeof(te->name) - 1);
-                te->name[sizeof(te->name) - 1] = '\0';
-                tree.count++;
-                i++;
-            } else {size_t dir_len = slash - path;
+        if (slash == NULL) {
+            TreeEntry *te = &tree.entries[tree.count];
+            te->mode = entries[i].mode;
+            te->hash = entries[i].hash;
+            strncpy(te->name, path, sizeof(te->name) - 1);
+            te->name[sizeof(te->name) - 1] = '\0';
+            tree.count++;
+            i++;
+        } else {
+            size_t dir_len = slash - path;
             char dir_name[256];
             strncpy(dir_name, path, dir_len);
             dir_name[dir_len] = '\0';
@@ -163,8 +164,10 @@ static int write_tree_level(IndexEntry *entries, int count, int depth, ObjectID 
                 j++;
             }
 
-            IndexEntry sub_entries[MAX_INDEX_ENTRIES];
             int sub_count = j - i;
+            IndexEntry *sub_entries = malloc(sub_count * sizeof(IndexEntry));
+            if (!sub_entries) return -1;
+
             for (int k = 0; k < sub_count; k++) {
                 sub_entries[k] = entries[i + k];
                 sub_entries[k].path[0] = '\0';
@@ -174,7 +177,11 @@ static int write_tree_level(IndexEntry *entries, int count, int depth, ObjectID 
             }
 
             ObjectID sub_id;
-            if (write_tree_level(sub_entries, sub_count, depth + 1, &sub_id) != 0) return -1;
+            if (write_tree_level(sub_entries, sub_count, depth + 1, &sub_id) != 0) {
+                free(sub_entries);
+                return -1;
+            }
+            free(sub_entries);
 
             TreeEntry *te = &tree.entries[tree.count];
             te->mode = MODE_DIR;

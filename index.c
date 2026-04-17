@@ -24,6 +24,7 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <time.h>
+#include "pes.h"
 
 // ─── PROVIDED ────────────────────────────────────────────────────────────────
 
@@ -137,20 +138,36 @@ int index_status(const Index *index) {
 // Returns 0 on success, -1 on error.
 int index_load(Index *index) {
     index->count = 0;
+
     FILE *f = fopen(INDEX_FILE, "r");
     if (!f) return 0;
 
     char hex[HASH_HEX_SIZE + 1];
+
     while (index->count < MAX_INDEX_ENTRIES) {
         IndexEntry *e = &index->entries[index->count];
-        int ret = fscanf(f, "%o %64s %llu %u %511s\n",
-                         &e->mode, hex,
-                         (unsigned long long *)&e->mtime_sec,
-                         &e->size, e->path);
+
+        unsigned long long mtime_tmp;
+
+        int ret = fscanf(f, "%o %64s %llu %u %511s",
+                         &e->mode,
+                         hex,
+                         &mtime_tmp,
+                         &e->size,
+                         e->path);
+
         if (ret != 5) break;
-        if (hex_to_hash(hex, &e->hash) != 0) { fclose(f); return -1; }
+
+        if (hex_to_hash(hex, &e->hash) != 0) {
+            fclose(f);
+            return -1;
+        }
+
+        e->mtime_sec = (uint64_t)mtime_tmp;
+
         index->count++;
     }
+
     fclose(f);
     return 0;
 }
@@ -170,28 +187,46 @@ static int compare_index_entries(const void *a, const void *b) {
 }
 
 int index_save(const Index *index) {
-    Index sorted = *index;
-    qsort(sorted.entries, sorted.count, sizeof(IndexEntry), compare_index_entries);
+    Index *sorted = malloc(sizeof(Index));
+    if (!sorted) return -1;
+    
+    *sorted = *index;
+    qsort(sorted->entries, sorted->count, sizeof(IndexEntry), compare_index_entries);
 
     char tmp_path[] = INDEX_FILE ".tmp_XXXXXX";
     int fd = mkstemp(tmp_path);
-    if (fd < 0) return -1;
+    if (fd < 0) {
+        free(sorted);
+        return -1;
+    }
+    
     FILE *f = fdopen(fd, "w");
-    if (!f) { close(fd); return -1; }
+    if (!f) { 
+        close(fd); 
+        free(sorted);
+        return -1; 
+    }
 
     char hex[HASH_HEX_SIZE + 1];
-    for (int i = 0; i < sorted.count; i++) {
-        const IndexEntry *e = &sorted.entries[i];
+    for (int i = 0; i < sorted->count; i++) {
+        const IndexEntry *e = &sorted->entries[i];
         hash_to_hex(&e->hash, hex);
         fprintf(f, "%o %s %llu %u %s\n",
                 e->mode, hex,
                 (unsigned long long)e->mtime_sec,
                 e->size, e->path);
     }
+    
     fflush(f);
     fsync(fileno(f));
     fclose(f);
-    if (rename(tmp_path, INDEX_FILE) != 0) return -1;
+    
+    if (rename(tmp_path, INDEX_FILE) != 0) {
+        free(sorted);
+        return -1;
+    }
+    
+    free(sorted);
     return 0;
 }
 
@@ -206,24 +241,52 @@ int index_save(const Index *index) {
 // Returns 0 on success, -1 on error.
 int index_add(Index *index, const char *path) {
     FILE *f = fopen(path, "rb");
-    if (!f) { fprintf(stderr, "error: cannot open '%s'\n", path); return -1; }
-    fseek(f, 0, SEEK_END);
+    if (!f) {
+        fprintf(stderr, "error: cannot open '%s'\n", path);
+        return -1;
+    }
+
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return -1;
+    }
+
     long file_size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (file_size < 0) { fclose(f); return -1; }
-    uint8_t *buf = malloc(file_size);
-    if (!buf) { fclose(f); return -1; }
-    if ((long)fread(buf, 1, file_size, f) != file_size) { fclose(f); free(buf); return -1; }
+    if (file_size < 0) {
+        fclose(f);
+        return -1;
+    }
+
+    rewind(f);
+
+    uint8_t *buf = malloc(file_size > 0 ? file_size : 1);
+    if (!buf) {
+        fclose(f);
+        return -1;
+    }
+
+    size_t read_bytes = fread(buf, 1, file_size, f);
+    if (read_bytes != (size_t)file_size) {
+        fclose(f);
+        free(buf);
+        return -1;
+    }
+
     fclose(f);
 
     ObjectID blob_id;
-    if (object_write(OBJ_BLOB, buf, file_size, &blob_id) != 0) { free(buf); return -1; }
+    if (object_write(OBJ_BLOB, buf, file_size, &blob_id) != 0) {
+        free(buf);
+        return -1;
+    }
+
     free(buf);
 
     struct stat st;
     if (lstat(path, &st) != 0) return -1;
 
     IndexEntry *existing = index_find(index, path);
+
     if (existing) {
         existing->hash = blob_id;
         existing->mode = (st.st_mode & S_IXUSR) ? 0100755 : 0100644;
@@ -231,14 +294,19 @@ int index_add(Index *index, const char *path) {
         existing->size = (uint32_t)st.st_size;
     } else {
         if (index->count >= MAX_INDEX_ENTRIES) return -1;
+
         IndexEntry *e = &index->entries[index->count];
+
         e->hash = blob_id;
         e->mode = (st.st_mode & S_IXUSR) ? 0100755 : 0100644;
         e->mtime_sec = (uint64_t)st.st_mtime;
         e->size = (uint32_t)st.st_size;
+
         strncpy(e->path, path, sizeof(e->path) - 1);
         e->path[sizeof(e->path) - 1] = '\0';
+
         index->count++;
     }
+
     return index_save(index);
 }
