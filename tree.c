@@ -150,9 +150,43 @@ static int write_tree_level(IndexEntry *entries, int count, int depth, ObjectID 
                 te->name[sizeof(te->name) - 1] = '\0';
                 tree.count++;
                 i++;
-            } 
+            } else {size_t dir_len = slash - path;
+            char dir_name[256];
+            strncpy(dir_name, path, dir_len);
+            dir_name[dir_len] = '\0';
 
+            int j = i;
+            while (j < count) {
+                char *p = entries[j].path;
+                char *s = strchr(p, '/');
+                if (s == NULL || (size_t)(s - p) != dir_len || strncmp(p, dir_name, dir_len) != 0) break;
+                j++;
+            }
 
+            IndexEntry sub_entries[MAX_INDEX_ENTRIES];
+            int sub_count = j - i;
+            for (int k = 0; k < sub_count; k++) {
+                sub_entries[k] = entries[i + k];
+                sub_entries[k].path[0] = '\0';
+                char *sep = strchr(entries[i + k].path, '/');
+                strncpy(sub_entries[k].path, sep + 1, sizeof(sub_entries[k].path) - 1);
+                sub_entries[k].path[sizeof(sub_entries[k].path) - 1] = '\0';
+            }
+
+            ObjectID sub_id;
+            if (write_tree_level(sub_entries, sub_count, depth + 1, &sub_id) != 0) return -1;
+
+            TreeEntry *te = &tree.entries[tree.count];
+            te->mode = MODE_DIR;
+            te->hash = sub_id;
+            strncpy(te->name, dir_name, sizeof(te->name) - 1);
+            te->name[sizeof(te->name) - 1] = '\0';
+            tree.count++;
+            i = j;
+        }
+    }
+
+                
 int tree_from_index(ObjectID *id_out) {
     // TODO: Implement recursive tree building
     // (See Lab Appendix for logical steps)
