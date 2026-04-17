@@ -10,6 +10,7 @@
 //   "100644 hello.txt\0" followed by 32 raw bytes of SHA-256
 
 #include "tree.h"
+#include "index.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,6 +24,8 @@
 #define MODE_DIR       0040000
 
 // ─── PROVIDED ───────────────────────────────────────────────────────────────
+
+static int write_tree_level(IndexEntry *entries, int count, int depth, ObjectID *id_out);
 
 // Determine the object mode for a filesystem path.
 uint32_t get_file_mode(const char *path) {
