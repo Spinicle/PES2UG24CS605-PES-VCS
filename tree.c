@@ -137,6 +137,22 @@ static int write_tree_level(IndexEntry *entries, int count, int depth, ObjectID 
     Tree tree;
     tree.count = 0;
 
+    int i = 0;
+        while (i < count) {
+            char *path = entries[i].path;
+            char *slash = strchr(path, '/');
+
+            if (slash == NULL) {
+                TreeEntry *te = &tree.entries[tree.count];
+                te->mode = entries[i].mode;
+                te->hash = entries[i].hash;
+                strncpy(te->name, path, sizeof(te->name) - 1);
+                te->name[sizeof(te->name) - 1] = '\0';
+                tree.count++;
+                i++;
+            } 
+
+
 int tree_from_index(ObjectID *id_out) {
     // TODO: Implement recursive tree building
     // (See Lab Appendix for logical steps)
