@@ -164,9 +164,20 @@ int index_load(Index *index) {
 //   - rename                           : atomically moving the temp file over the old index
 //
 // Returns 0 on success, -1 on error.
+static int compare_index_entries(const void *a, const void *b) {
+    return strcmp(((const IndexEntry *)a)->path, ((const IndexEntry *)b)->path);
+}
+
 int index_save(const Index *index) {
-    // TODO: Implement atomic index saving
-    // (See Lab Appendix for logical steps)
+    Index sorted = *index;
+    qsort(sorted.entries, sorted.count, sizeof(IndexEntry), compare_index_entries);
+
+    char tmp_path[] = INDEX_FILE ".tmp_XXXXXX";
+    int fd = mkstemp(tmp_path);
+    if (fd < 0) return -1;
+    FILE *f = fdopen(fd, "w");
+    if (!f) { close(fd); return -1; }
+    
     (void)index;
     return -1;
 }
