@@ -186,6 +186,12 @@ int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_
     }
     fclose(f);
 
+    ObjectID computed;
+    compute_hash(buf, file_size, &computed);
+    if (memcmp(computed.hash, id->hash, HASH_SIZE) != 0) {
+        free(buf); return -1;
+    }
+
     (void)id; (void)type_out; (void)data_out; (void)len_out;
     return -1;
 }
