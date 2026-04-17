@@ -192,6 +192,20 @@ int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_
         free(buf); return -1;
     }
 
-    (void)id; (void)type_out; (void)data_out; (void)len_out;
-    return -1;
+    uint8_t *null_pos = memchr(buf, '\0', file_size);
+    if (!null_pos) { free(buf); return -1; }
+
+    if (strncmp((char *)buf, "blob ", 5) == 0)        *type_out = OBJ_BLOB;
+    else if (strncmp((char *)buf, "tree ", 5) == 0)   *type_out = OBJ_TREE;
+    else if (strncmp((char *)buf, "commit ", 7) == 0) *type_out = OBJ_COMMIT;
+    else { free(buf); return -1; }
+
+    uint8_t *data_start = null_pos + 1;
+    *len_out = file_size - (data_start - buf);
+    *data_out = malloc(*len_out);
+    if (!*data_out) { free(buf); return -1; }
+    memcpy(*data_out, data_start, *len_out);
+
+    free(buf);
+    return 0;
 }
